@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# AppImage entry point: run CUTROOM with the Python and FFmpeg inside this image.
+# The image itself is read-only, so projects, exports and caches live in the
+# user's data folder (override with CUTROOM_DATA_DIR).
+set -euo pipefail
+
+here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+export CUTROOM_DATA_DIR="${CUTROOM_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/cutroom}"
+export CUTROOM_FFMPEG="${CUTROOM_FFMPEG:-$here/usr/bin/ffmpeg}"
+export CUTROOM_FFPROBE="${CUTROOM_FFPROBE:-$here/usr/bin/ffprobe}"
+export PATH="$here/usr/bin:$PATH"
+# Use only the bundled interpreter and packages, and never write into the image.
+export PYTHONNOUSERSITE=1
+export PYTHONDONTWRITEBYTECODE=1
+unset PYTHONHOME PYTHONPATH
+
+mkdir -p "$CUTROOM_DATA_DIR"
+cd "$CUTROOM_DATA_DIR"
+exec "$here/usr/python/bin/python3.12" "$here/usr/lib/cutroom/server.py" "$@"

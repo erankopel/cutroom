@@ -5,3 +5,6 @@
 *.command text eol=lf
 *.bat -text
 *.ps1 -text
+# The AppImage entry point has no extension but must stay LF.
+packaging/linux/AppRun text eol=lf
+packaging/linux/*.desktop text eol=lf

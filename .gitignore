@@ -24,3 +24,6 @@ VALIDATION_REPORT_HE.md
 
 # Local-only campaign drafts and social artwork are not project source.
 /marketing/
+
+# Local AppImage build output.
+build/

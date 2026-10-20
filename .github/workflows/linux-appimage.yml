@@ -1,0 +1,187 @@
+name: Linux AppImage
+
+# Builds one self-contained CUTROOM file for x86-64 Linux: a relocatable Python 3.12,
+# the pinned Python dependencies, a static FFmpeg 7.1 build and the application.
+# The same smoke test runs on the unpacked folder (read-only) and on the final
+# file. A passing push to any branch publishes the file as the rolling
+# "linux-appimage-dev" pre-release; pull requests only build and test.
+
+on:
+  push:
+    paths:
+      - 'packaging/linux/**'
+      - 'scripts/smoke_linux_appimage.py'
+      - 'requirements.txt'
+      - '.github/workflows/linux-appimage.yml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish the result as the linux-appimage-dev pre-release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-appimage-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # BtbN builds the release branches of FFmpeg with GPL codecs, libass and libvidstab.
+  FFMPEG_ARCHIVE: ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz
+  FFMPEG_RELEASE_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
+  APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+  RELEASE_TAG: linux-appimage-dev
+
+jobs:
+  appimage:
+    name: Build, test and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python for the regression suite
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+
+      - name: Download a relocatable Python 3.12
+        run: |
+          python -m pip install --upgrade uv
+          UV_PYTHON_PREFERENCE=only-managed uv python install 3.12
+          home="$(readlink -f "$(ls -d "$(uv python dir)"/cpython-3.12.*-linux-x86_64-gnu | sort -V | tail -n1)")"
+          test -x "$home/bin/python3.12"
+          echo "PYTHON_HOME=$home" >> "$GITHUB_ENV"
+          "$home/bin/python3.12" --version
+
+      - name: Download and verify FFmpeg
+        run: |
+          mkdir -p "$RUNNER_TEMP/ffmpeg-download"
+          cd "$RUNNER_TEMP/ffmpeg-download"
+          if ! curl -fsSL --retry 3 -o "$FFMPEG_ARCHIVE" "$FFMPEG_RELEASE_URL/$FFMPEG_ARCHIVE"; then
+            echo "Could not download $FFMPEG_ARCHIVE. Archives available in the release:"
+            gh release view latest --repo BtbN/FFmpeg-Builds --json assets --jq '.assets[].name' | grep linux64-gpl || true
+            exit 1
+          fi
+          curl -fsSL --retry 3 -o checksums.sha256 "$FFMPEG_RELEASE_URL/checksums.sha256"
+          grep " $FFMPEG_ARCHIVE\$" checksums.sha256 | sha256sum -c -
+          tar -xJf "$FFMPEG_ARCHIVE"
+          echo "FFMPEG_DIR=$PWD/${FFMPEG_ARCHIVE%.tar.xz}/bin" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Check the FFmpeg features CUTROOM needs
+        run: |
+          "$FFMPEG_DIR/ffmpeg" -version > "$RUNNER_TEMP/ffmpeg-version.txt"
+          head -n 1 "$RUNNER_TEMP/ffmpeg-version.txt"
+          encoders="$("$FFMPEG_DIR/ffmpeg" -hide_banner -encoders)"
+          filters="$("$FFMPEG_DIR/ffmpeg" -hide_banner -filters)"
+          grep -qE ' libx264 ' <<<"$encoders"
+          grep -qE ' aac ' <<<"$encoders"
+          for filter in subtitles vidstabdetect vidstabtransform chromakey loudnorm; do
+            grep -qE " $filter " <<<"$filters" || { echo "FFmpeg lacks the $filter filter"; exit 1; }
+          done
+          options="$("$FFMPEG_DIR/ffmpeg" -hide_banner -h filter=vidstabdetect)"
+          grep -qE '^ +fileformat +<' <<<"$options" || { echo "vidstabdetect lacks the fileformat option"; exit 1; }
+          {
+            echo "### FFmpeg"
+            echo '```'
+            head -n 1 "$RUNNER_TEMP/ffmpeg-version.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run the regression suite against this FFmpeg
+        run: |
+          python -m venv "$RUNNER_TEMP/test-venv"
+          "$RUNNER_TEMP/test-venv/bin/python" -m pip install -r tests/requirements.txt
+          PATH="$FFMPEG_DIR:$PATH" CUTROOM_DATA_DIR="$RUNNER_TEMP/regression-data" \
+            "$RUNNER_TEMP/test-venv/bin/python" -m pytest -ra
+
+      - name: Assemble the AppDir
+        run: bash packaging/linux/build_appdir.sh
+
+      - name: Smoke-test the AppDir with its folder read-only
+        run: |
+          appdir=build/linux/CutRoom.AppDir
+          chmod -R a-w "$appdir"
+          python scripts/smoke_linux_appimage.py --launcher "$appdir/AppRun" \
+            --ffmpeg "$FFMPEG_DIR/ffmpeg" --ffprobe "$FFMPEG_DIR/ffprobe" \
+            --require-stabilization --watch-tree "$appdir" --report "$RUNNER_TEMP/smoke-appdir.json"
+          chmod -R u+w "$appdir"
+
+      - name: Build the AppImage
+        run: |
+          version="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' cutroom/__init__.py)"
+          echo "APPIMAGE=CutRoom-${version}-x86_64.AppImage" >> "$GITHUB_ENV"
+          mkdir -p dist "$RUNNER_TEMP/appimagetool"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/appimagetool/appimagetool" "$APPIMAGETOOL_URL"
+          sha256sum "$RUNNER_TEMP/appimagetool/appimagetool"
+          chmod +x "$RUNNER_TEMP/appimagetool/appimagetool"
+          ARCH=x86_64 "$RUNNER_TEMP/appimagetool/appimagetool" --appimage-extract-and-run \
+            --no-appstream --comp zstd build/linux/CutRoom.AppDir "dist/CutRoom-${version}-x86_64.AppImage"
+          ls -l dist
+
+      - name: Smoke-test the AppImage file
+        run: |
+          python scripts/smoke_linux_appimage.py --launcher "dist/$APPIMAGE" \
+            --ffmpeg "$FFMPEG_DIR/ffmpeg" --ffprobe "$FFMPEG_DIR/ffprobe" \
+            --require-stabilization --report "$RUNNER_TEMP/smoke-appimage.json"
+
+      - name: Record checksums
+        run: |
+          cd dist
+          sha256sum "$APPIMAGE" | tee SHA256SUMS
+          {
+            echo "### AppImage"
+            echo '```'
+            ls -lh "$APPIMAGE"
+            cat SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the AppImage with the run
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: CutRoom-AppImage
+          path: |
+            dist/*.AppImage
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish the development pre-release
+        if: github.event_name == 'push' || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ffmpeg_line="$(head -n 1 "$RUNNER_TEMP/ffmpeg-version.txt")"
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Development build of CUTROOM as a single file for 64-bit Linux, built from commit ${GITHUB_SHA}.
+
+          Download **${APPIMAGE}**, then:
+
+          \`\`\`sh
+          chmod +x ${APPIMAGE}
+          ./${APPIMAGE}
+          \`\`\`
+
+          The editor opens at http://127.0.0.1:8765. Keep the terminal open while editing and press Control-C to stop it. Projects are stored in \`~/.local/share/cutroom\`.
+          If it reports a missing FUSE library, run \`sudo apt install libfuse2\` (Ubuntu 22.04) or \`sudo apt install libfuse2t64\` (Ubuntu 24.04), or start it with \`--appimage-extract-and-run\`.
+
+          Bundled: Python 3.12, the dependencies in requirements.txt and ${ffmpeg_line} (a GPL build with libx264, libass and libvidstab). Speech and AI models are not included and download on first use. This file is unsigned and has been tested by an automated synthetic editing session, not on physical desktops.
+          EOF
+          gh release delete "$RELEASE_TAG" --cleanup-tag --yes || true
+          gh release create "$RELEASE_TAG" "dist/$APPIMAGE" dist/SHA256SUMS \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "CUTROOM Linux AppImage (development build)" --notes-file "$RUNNER_TEMP/notes.md"

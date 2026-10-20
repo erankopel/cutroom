@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=CutRoom
+GenericName=Video editor
+Comment=Local-first video editor for YouTube, Shorts and Reels cuts
+Exec=AppRun
+Icon=cutroom
+Categories=AudioVideo;Video;AudioVideoEditing;
+Terminal=true
