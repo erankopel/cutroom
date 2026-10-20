@@ -11,6 +11,11 @@ on:
     paths:
       - 'packaging/linux/**'
       - 'scripts/smoke_linux_appimage.py'
+      - 'scripts/preflight.py'
+      - 'server.py'
+      - 'cutroom/**'
+      - 'web/**'
+      - 'config.json'
       - 'requirements.txt'
       - '.github/workflows/linux-appimage.yml'
   workflow_dispatch:

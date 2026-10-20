@@ -28,7 +28,7 @@ The file itself is read-only. Projects, exports and caches are stored in `~/.loc
 
 ## How it is built
 
-[`.github/workflows/linux-appimage.yml`](../../.github/workflows/linux-appimage.yml) builds it on every push that changes this folder, and can be started by hand. It:
+[`.github/workflows/linux-appimage.yml`](../../.github/workflows/linux-appimage.yml) builds it on every push that changes this folder or the application it packages, and can be started by hand. It:
 
 1. Downloads a relocatable Python 3.12 and a static FFmpeg 9.0 build, verifying the FFmpeg archive against its published checksum.
 2. Runs the full regression suite against that FFmpeg.
