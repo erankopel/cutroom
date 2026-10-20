@@ -1,0 +1,47 @@
+name: Diagnose FFmpeg (temporary)
+
+# Temporary: prints how candidate FFmpeg builds list the filters CUTROOM looks for.
+# Delete this file once the AppImage FFmpeg is settled.
+
+on:
+  push:
+    paths:
+      - '.github/workflows/diagnose-ffmpeg.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        archive:
+          - ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
+          - ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download and inspect
+        env:
+          ARCHIVE: ${{ matrix.archive }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ff" && cd "$RUNNER_TEMP/ff"
+          curl -fsSL --retry 3 -o "$ARCHIVE" "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$ARCHIVE"
+          tar -xJf "$ARCHIVE"
+          ffmpeg="$PWD/${ARCHIVE%.tar.xz}/bin/ffmpeg"
+          echo "##### $ARCHIVE"
+          "$ffmpeg" -version > version.txt; head -n 1 version.txt
+          "$ffmpeg" -hide_banner -filters > filters.txt
+          echo "----- first 16 lines of -filters (with hidden characters shown)"
+          head -n 16 filters.txt | cat -A
+          echo "----- lines for the filters CUTROOM needs"
+          grep -nE ' (chromakey|overlay|split|drawbox|format|scale|crop|setsar|setpts|vidstabdetect|vidstabtransform|subtitles) ' filters.txt | cat -A
+          echo "----- vidstabdetect options"
+          "$ffmpeg" -hide_banner -h filter=vidstabdetect > help.txt
+          grep -nE 'fileformat|AVOptions' help.txt | cat -A
+          echo "----- encoders"
+          "$ffmpeg" -hide_banner -encoders | grep -E ' (libx264|aac) ' | cat -A
