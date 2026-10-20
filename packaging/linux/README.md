@@ -1,6 +1,6 @@
 # CUTROOM as a single Linux file
 
-`CutRoom-<version>-x86_64.AppImage` is one executable for 64-bit Linux. It carries its own Python 3.12, the Python dependencies from `requirements.txt` and an FFmpeg 7.1 build with libx264, libass and libvidstab, so nothing else needs installing. Speech and AI models are not included; they download on first use, as in a source checkout.
+`CutRoom-<version>-x86_64.AppImage` is one executable for 64-bit Linux. It carries its own Python 3.12, the Python dependencies from `requirements.txt` and an FFmpeg 9.0 build with libx264, libass and libvidstab, so nothing else needs installing. Speech and AI models are not included; they download on first use, as in a source checkout.
 
 This is a **development build**: unsigned, and tested by an automated synthetic editing session rather than on physical desktops. The source-checkout path in [platform setup](../../docs/PLATFORMS.md) is unchanged.
 
@@ -30,7 +30,7 @@ The file itself is read-only. Projects, exports and caches are stored in `~/.loc
 
 [`.github/workflows/linux-appimage.yml`](../../.github/workflows/linux-appimage.yml) builds it on every push that changes this folder, and can be started by hand. It:
 
-1. Downloads a relocatable Python 3.12 and a static FFmpeg 7.1 build, verifying the FFmpeg archive against its published checksum.
+1. Downloads a relocatable Python 3.12 and a static FFmpeg 9.0 build, verifying the FFmpeg archive against its published checksum.
 2. Runs the full regression suite against that FFmpeg.
 3. Runs [`build_appdir.sh`](build_appdir.sh) to assemble the folder that becomes the image.
 4. Smoke-tests that folder with its files read-only, then builds the AppImage and smoke-tests the file. [`scripts/smoke_linux_appimage.py`](../../scripts/smoke_linux_appimage.py) imports a generated clip, cuts it, adds captions, exports, checks the caption is drawn on the picture, runs a stabilization job, restarts at once on the same port and reopens the project.

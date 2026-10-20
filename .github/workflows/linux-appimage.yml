@@ -1,7 +1,7 @@
 name: Linux AppImage
 
 # Builds one self-contained CUTROOM file for x86-64 Linux: a relocatable Python 3.12,
-# the pinned Python dependencies, a static FFmpeg 7.1 build and the application.
+# the pinned Python dependencies, a static FFmpeg 9.0 build and the application.
 # The same smoke test runs on the unpacked folder (read-only) and on the final
 # file. A passing push to any branch publishes the file as the rolling
 # "linux-appimage-dev" pre-release; pull requests only build and test.
@@ -29,7 +29,7 @@ concurrency:
 
 env:
   # BtbN builds the release branches of FFmpeg with GPL codecs, libass and libvidstab.
-  FFMPEG_ARCHIVE: ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz
+  FFMPEG_ARCHIVE: ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz
   FFMPEG_RELEASE_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
   APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
   RELEASE_TAG: linux-appimage-dev
