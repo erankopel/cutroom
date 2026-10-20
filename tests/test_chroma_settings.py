@@ -123,6 +123,22 @@ def test_capability_is_cached_by_existing_binary_identity_and_gracefully_reports
     _chroma_filters.cache_clear()
 
 
+@pytest.mark.parametrize("flags", ["...", "TSC", "TS", ".."])
+def test_capability_reads_filter_listings_with_two_or_three_flag_characters(tmp_path, monkeypatch, flags):
+    from cutroom import effects, media
+    executable = tmp_path / "ffmpeg"
+    executable.write_bytes(b"synthetic capability test marker; never executed")
+    monkeypatch.setattr(effects.shutil, "which", lambda _: str(executable))
+    names = "chromakey overlay split drawbox format scale crop setsar setpts".split()
+    monkeypatch.setattr(media, "run_command", lambda *_args, **_kwargs: SimpleNamespace(
+        stdout="Filters:\n  ------\n" + "\n".join(f" {flags} {name:<17} V->V       A filter." for name in names)))
+    _chroma_filters.cache_clear()
+    try:
+        assert chroma_key_capability(SimpleNamespace(ffmpeg=str(executable)))["available"] is True
+    finally:
+        _chroma_filters.cache_clear()
+
+
 def test_capability_inspection_errors_do_not_expose_local_paths(tmp_path, monkeypatch):
     from cutroom import effects, media
     executable = tmp_path / "private-tool-location.exe"

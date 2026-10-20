@@ -88,9 +88,10 @@ def build_chroma_key_nodes(
 
 @lru_cache(maxsize=8)
 def _chroma_filters(executable: str, size: int, modified_ns: int) -> bool:
+    from .ffmpeg_compat import listed_filters
     from .media import run_command
     result = run_command([executable, "-nostdin", "-hide_banner", "-filters"], timeout=10)
-    filters = set(re.findall(r"^\s*[.TSC]{3}\s+(\w+)\s+", result.stdout, re.MULTILINE))
+    filters = listed_filters(result.stdout)
     return {"chromakey", "overlay", "split", "drawbox", "format", "scale", "crop", "setsar", "setpts"}.issubset(filters)
 
 

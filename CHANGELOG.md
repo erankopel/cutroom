@@ -2,6 +2,7 @@
 
 ## Unreleased - Linux restart and stabilization availability fixes
 
+- Chroma Key and stabilization were reported unavailable on FFmpeg 8.1 and later even though the filters were present. Those builds list each filter with two flag characters instead of three, and both checks required three. The filter list is now read in one shared place that accepts either width.
 - Starting CUTROOM again within about a minute of stopping it no longer fails with a false "already in use" message on Linux. Startup now reserves its port with address reuse and listens immediately, as the Mac launcher already did. A port held by a running program still blocks startup, and Windows keeps its exclusive reservation.
 - Stabilization is now reported unavailable when the configured FFmpeg lists the vidstab filters but its `vidstabdetect` lacks the `fileformat` option, as in FFmpeg 6.1 (Ubuntu 24.04). Before, the interface offered the action and every copy failed after it started. The message now explains that a newer FFmpeg is needed.
 

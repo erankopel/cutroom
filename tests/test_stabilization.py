@@ -15,6 +15,8 @@ import pytest
 
 
 VIDSTAB_FILTERS = " ... vidstabdetect V->V\n ... vidstabtransform V->V\n"
+# FFmpeg 8.1 and later print two flag characters per filter instead of three.
+VIDSTAB_FILTERS_TWO_FLAGS = " .. vidstabdetect     V->V       Detect.\n .. vidstabtransform  V->V       Transform.\n"
 # Option list of `ffmpeg -h filter=vidstabdetect` on FFmpeg 6.1.1, which has no fileformat option.
 VIDSTAB_OPTIONS_FFMPEG_6_1 = """Filter vidstabdetect
   Extract relative transformations, pass 1 of 2 for stabilization (see vidstabtransform for pass 2).
@@ -238,6 +240,13 @@ def test_capability_ignores_other_options_that_merely_mention_fileformat(monkeyp
     help_text = VIDSTAB_OPTIONS_FFMPEG_6_1 + "   result  <string> ..FV....... set the fileformat of the transforms file\n"
     _fake_ffmpeg(monkeypatch, stabilization, options=(help_text, ""))
     assert stabilization.stabilization_capability(SimpleNamespace(ffmpeg="ffmpeg"))["available"] is False
+
+
+@pytest.mark.parametrize("filters", [VIDSTAB_FILTERS, VIDSTAB_FILTERS_TWO_FLAGS], ids=["three-flags", "two-flags"])
+def test_capability_reads_the_filter_list_of_ffmpeg_with_two_or_three_flag_characters(monkeypatch, filters):
+    stabilization = importlib.import_module("cutroom.stabilization")
+    _fake_ffmpeg(monkeypatch, stabilization, filters=filters, options=(VIDSTAB_OPTIONS_WITH_FILEFORMAT, ""))
+    assert stabilization.stabilization_capability(SimpleNamespace(ffmpeg="ffmpeg"))["available"] is True
 
 
 def test_capability_without_the_filters_does_not_ask_for_filter_help(monkeypatch):

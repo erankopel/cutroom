@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
+from .ffmpeg_compat import listed_filters
 from .jobs import JobCancelled
 from .media import _stop_process, parse_rate
 
@@ -94,8 +95,7 @@ def stabilization_capability(settings, *, cancel_check=None) -> dict:
     try:
         result = _run([settings.ffmpeg, "-nostdin", "-hide_banner", "-filters"],
                       timeout=15, cancel_check=cancel_check)
-        filters = set(re.findall(r"^\s*[.TSC]{3}\s+(vidstabdetect|vidstabtransform)\s+", result.stdout, re.MULTILINE))
-        if filters != {"vidstabdetect", "vidstabtransform"}:
+        if not {"vidstabdetect", "vidstabtransform"} <= listed_filters(result.stdout):
             return report(False, "Stabilization needs FFmpeg with the vidstabdetect and vidstabtransform filters. "
                                  "No software was installed.")
         options = _run([settings.ffmpeg, "-nostdin", "-hide_banner", "-h", "filter=vidstabdetect"],

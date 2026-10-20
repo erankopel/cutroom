@@ -166,3 +166,54 @@ def test_missing_executable_fails_without_launching_anything(monkeypatch, tmp_pa
     monkeypatch.setattr(compat, "_capture", lambda _command: pytest.fail("Must not launch an absent binary"))
     with pytest.raises(compat.FFmpegCompatibilityError, match="accessible FFmpeg"):
         compat.export_capabilities(str(tmp_path / "missing.exe"))
+
+
+# Real `ffmpeg -filters` excerpts. FFmpeg 6.1 prints three flag characters per filter;
+# the FFmpeg 8.1 and 9.0 builds print two and no longer list the command-support flag.
+FILTERS_FFMPEG_6_1 = """Filters:
+  T.. = Timeline support
+  .S. = Slice threading
+  ..C = Command support
+  A = Audio input/output
+  V = Video input/output
+  N = Dynamic number and/or type of input/output
+  | = Source or sink filter
+ ... abench            A->A       Benchmark part of a filtergraph.
+ ..C acompressor       A->A       Audio compressor.
+ TSC chromakey         V->V       Turns a certain color into transparency. Operates on YUV colors.
+ ... chromakey_cuda    V->V       GPU accelerated chromakey filter
+ T.C cropdetect        V->V       Auto-detect crop size.
+ ... vidstabdetect     V->V       Extract relative transformations, pass 1 of 2 for stabilization (see vidstabtransform for pass 2).
+ ... vidstabtransform  V->V       Transform the frames, pass 2 of 2 for stabilization (see vidstabdetect for pass 1).
+"""
+FILTERS_FFMPEG_9_0 = """Filters:
+  T.. = Timeline support
+  .S. = Slice threading
+  A = Audio input/output
+  V = Video input/output
+  N = Dynamic number and/or type of input/output
+  | = Source or sink filter
+  ------
+ TS aap               AA->A      Apply Affine Projection algorithm to first audio stream.
+ .. abench            A->A       Benchmark part of a filtergraph.
+ .S acrossover        A->N       Split audio into per-bands streams.
+ TS chromakey         V->V       Turns a certain color into transparency. Operates on YUV colors.
+ .. chromakey_cuda    V->V       GPU accelerated chromakey filter
+ T. cropdetect        V->V       Auto-detect crop size.
+ .. vidstabdetect     V->V       Extract relative transformations, pass 1 of 2 for stabilization (see vidstabtransform for pass 2).
+ .. vidstabtransform  V->V       Transform the frames, pass 2 of 2 for stabilization (see vidstabdetect for pass 1).
+"""
+
+
+@pytest.mark.parametrize("listing,expected", [
+    (FILTERS_FFMPEG_6_1, {"abench", "acompressor", "chromakey", "chromakey_cuda", "cropdetect", "vidstabdetect", "vidstabtransform"}),
+    (FILTERS_FFMPEG_9_0, {"aap", "abench", "acrossover", "chromakey", "chromakey_cuda", "cropdetect", "vidstabdetect", "vidstabtransform"}),
+], ids=["ffmpeg-6.1", "ffmpeg-9.0"])
+def test_listed_filters_reads_both_flag_column_widths(listing, expected):
+    assert compat.listed_filters(listing) == expected
+
+
+def test_listed_filters_ignores_the_legend_and_unrelated_text():
+    legend = "Filters:\n  T.. = Timeline support\n  .S. = Slice threading\n  | = Source or sink filter\n  ------\n"
+    assert compat.listed_filters(legend) == set()
+    assert compat.listed_filters("") == set()

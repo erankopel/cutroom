@@ -17,6 +17,14 @@ import subprocess
 import tempfile
 
 PROBE_TIMEOUT_SECONDS = 8
+# Each line of `ffmpeg -filters` starts with its flag characters: T timeline, S slice threading and,
+# before FFmpeg 8.1, C command support. Builds from 8.1 on print two flags instead of three.
+_FILTER_LINE = re.compile(r"^\s*[.TSC]{2,3}\s+(\w+)\s+", re.MULTILINE)
+
+
+def listed_filters(filters_output: str) -> set[str]:
+    """Names of the filters in `ffmpeg -filters` output, in either flag-column width."""
+    return set(_FILTER_LINE.findall(filters_output))
 
 
 class FFmpegCompatibilityError(RuntimeError):
