@@ -36,6 +36,8 @@ def windows_long_backend(tmp_path, monkeypatch):
         calls.append((args, kwargs))
         if "-filters" in args:
             return subprocess.CompletedProcess(args, 0, " ... vidstabdetect V->V\n ... vidstabtransform V->V\n", "")
+        if "-h" in args:
+            return subprocess.CompletedProcess(args, 0, "   fileformat        <int>        ..FV....... transforms data file format\n", "")
         if "vidstabdetect" in args[args.index("-vf") + 1]:
             (kwargs["cwd"] / "transforms.trf").write_text("motion")
         else:

@@ -44,7 +44,7 @@ Linux users can try the repository scripts; this is not a packaged Linux release
 Before setup, install these using your distribution's supported tools:
 
 - **Python 3.12**, including working `venv` and `pip` support.
-- **FFmpeg and FFprobe**, available on `PATH`. For MP4 export, FFmpeg needs libx264 and AAC; burned captions require its `subtitles` filter/libass. Use a build compatible with the application's FFmpeg options; the Linux preflight checks executable availability, not all rendering capabilities.
+- **FFmpeg and FFprobe**, available on `PATH`. For MP4 export, FFmpeg needs libx264 and AAC; burned captions require its `subtitles` filter/libass. Use a build compatible with the application's FFmpeg options; the Linux preflight checks executable availability, not all rendering capabilities. Editing and export work with the FFmpeg 6.1.1 package in Ubuntu 24.04, but optional [stabilization](STABILIZATION.md) needs a newer build and is reported unavailable there.
 - **Bash**, a writable local folder and internet for Python dependency downloads. Ollama and AI model downloads are optional.
 
 Clone or download the [repository source](https://github.com/VanoPeradze/cutroom), extract it if necessary, and open a terminal in the repository root. Then run:

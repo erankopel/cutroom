@@ -2279,9 +2279,19 @@ def _reserve_server_sockets(host: str, port: int) -> list[socket.socket]:
             try:
                 if family == socket.AF_INET6 and hasattr(socket, "IPV6_V6ONLY"):
                     candidate.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
-                if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-                    candidate.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                if os.name == "nt":
+                    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                        candidate.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                else:
+                    # Connections the previous run closed linger in TIME_WAIT for about a minute and
+                    # otherwise make a quick restart fail. Reuse ports are never enabled, so a live
+                    # listener on this port still stops startup.
+                    candidate.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 candidate.bind(address)
+                if os.name != "nt":
+                    # Two address-reusing sockets may share a bound port until one listens; claim it now.
+                    # Waitress calls listen again with its own backlog when it takes ownership.
+                    candidate.listen(128)
             except OSError as exc:
                 candidate.close()
                 raise ServerStartupError(

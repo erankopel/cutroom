@@ -14,6 +14,23 @@ from types import SimpleNamespace
 import pytest
 
 
+VIDSTAB_FILTERS = " ... vidstabdetect V->V\n ... vidstabtransform V->V\n"
+# Option list of `ffmpeg -h filter=vidstabdetect` on FFmpeg 6.1.1, which has no fileformat option.
+VIDSTAB_OPTIONS_FFMPEG_6_1 = """Filter vidstabdetect
+  Extract relative transformations, pass 1 of 2 for stabilization (see vidstabtransform for pass 2).
+vidstabdetect AVOptions:
+   result            <string>     ..FV....... path to the file used to write the transforms (default "transforms.trf")
+   shakiness         <int>        ..FV....... how shaky is the video and how quick is the camera? 1: little (fast) 10: very strong/quick (slow) (from 1 to 10) (default 5)
+   accuracy          <int>        ..FV....... (>=shakiness) 1: low 15: high (slow) (from 1 to 15) (default 15)
+   stepsize          <int>        ..FV....... region around minimum is scanned with 1 pixel resolution (from 1 to 32) (default 6)
+   mincontrast       <double>     ..FV....... below this contrast a field is discarded (0-1) (from 0 to 1) (default 0.25)
+   show              <int>        ..FV....... 0: draw nothing; 1,2: show fields and transforms (from 0 to 2) (default 0)
+   tripod            <int>        ..FV....... virtual tripod mode (if >0): motion is compared to a reference reference frame (frame # is the value) (from 0 to INT_MAX) (default 0)
+"""
+VIDSTAB_OPTIONS_WITH_FILEFORMAT = VIDSTAB_OPTIONS_FFMPEG_6_1 + (
+    "   fileformat        <int>        ..FV....... transforms data file format (from 1 to 2) (default binary)\n")
+
+
 def _settings():
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
@@ -143,6 +160,8 @@ def fake_backend(tmp_path, monkeypatch):
         calls.append((args, kwargs))
         if "-filters" in args:
             return subprocess.CompletedProcess(args, 0, " ... vidstabdetect V->V\n ... vidstabtransform V->V\n", "")
+        if "-h" in args:
+            return subprocess.CompletedProcess(args, 0, VIDSTAB_OPTIONS_WITH_FILEFORMAT, "")
         if "vidstabdetect" in args[args.index("-vf") + 1]:
             (kwargs["cwd"] / "transforms.trf").write_text("motion")
         else:
@@ -175,6 +194,79 @@ def test_missing_filters_fail_before_processing_and_keep_original(fake_backend, 
     with pytest.raises(stabilization.StabilizationError, match="vidstab"):
         stabilization.stabilize_video(source, target, settings)
     assert source.read_bytes() == b"original bytes" and not target.exists()
+
+
+def _fake_ffmpeg(monkeypatch, stabilization, *, filters=VIDSTAB_FILTERS, options=("", ""), help_error=None):
+    """Answer the capability probe's two FFmpeg calls; any other call is a test failure."""
+    calls = []
+    def run(args, **_kwargs):
+        calls.append(args)
+        if "-filters" in args:
+            return subprocess.CompletedProcess(args, 0, filters, "")
+        if "-h" in args and "filter=vidstabdetect" in args:
+            if help_error:
+                raise help_error
+            return subprocess.CompletedProcess(args, 0, *options)
+        raise AssertionError(f"unexpected FFmpeg call: {args}")
+    monkeypatch.setattr(stabilization, "_run", run)
+    return calls
+
+
+def test_capability_requires_the_fileformat_option_not_just_the_filters(monkeypatch):
+    stabilization = importlib.import_module("cutroom.stabilization")
+    settings = SimpleNamespace(ffmpeg="ffmpeg")
+    calls = _fake_ffmpeg(monkeypatch, stabilization, options=(VIDSTAB_OPTIONS_FFMPEG_6_1, ""))
+    result = stabilization.stabilization_capability(settings)
+    assert result["available"] is False and result["engine"] == "vidstab"
+    assert "fileformat" in result["message"] and "newer FFmpeg" in result["message"]
+    assert [call[-1] for call in calls] == ["-filters", "filter=vidstabdetect"]
+
+
+@pytest.mark.parametrize("stdout,stderr", [
+    (VIDSTAB_OPTIONS_WITH_FILEFORMAT, ""),
+    ("", VIDSTAB_OPTIONS_WITH_FILEFORMAT),
+])
+def test_capability_accepts_filter_help_from_either_output_stream(monkeypatch, stdout, stderr):
+    stabilization = importlib.import_module("cutroom.stabilization")
+    _fake_ffmpeg(monkeypatch, stabilization, options=(stdout, stderr))
+    result = stabilization.stabilization_capability(SimpleNamespace(ffmpeg="ffmpeg"))
+    assert result == {"available": True, "engine": "vidstab", "message": "Local two-pass stabilization is available."}
+
+
+def test_capability_ignores_other_options_that_merely_mention_fileformat(monkeypatch):
+    stabilization = importlib.import_module("cutroom.stabilization")
+    help_text = VIDSTAB_OPTIONS_FFMPEG_6_1 + "   result  <string> ..FV....... set the fileformat of the transforms file\n"
+    _fake_ffmpeg(monkeypatch, stabilization, options=(help_text, ""))
+    assert stabilization.stabilization_capability(SimpleNamespace(ffmpeg="ffmpeg"))["available"] is False
+
+
+def test_capability_without_the_filters_does_not_ask_for_filter_help(monkeypatch):
+    stabilization = importlib.import_module("cutroom.stabilization")
+    calls = _fake_ffmpeg(monkeypatch, stabilization, filters=" ... deshake V->V\n ... vidstabdetect V->V\n")
+    result = stabilization.stabilization_capability(SimpleNamespace(ffmpeg="ffmpeg"))
+    assert result["available"] is False and "vidstabdetect and vidstabtransform" in result["message"]
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("error", [
+    subprocess.CalledProcessError(1, "ffmpeg"),
+    subprocess.TimeoutExpired("ffmpeg", 15),
+    FileNotFoundError("ffmpeg"),
+])
+def test_capability_reports_an_uninspectable_ffmpeg_when_filter_help_fails(monkeypatch, error):
+    stabilization = importlib.import_module("cutroom.stabilization")
+    _fake_ffmpeg(monkeypatch, stabilization, help_error=error)
+    result = stabilization.stabilization_capability(SimpleNamespace(ffmpeg="ffmpeg"))
+    assert result == {"available": False, "engine": "vidstab", "message": "CUTROOM could not inspect the installed FFmpeg."}
+
+
+def test_ffmpeg_without_fileformat_fails_before_any_pass_and_keeps_the_original(fake_backend, monkeypatch):
+    stabilization, source, target, settings, calls = fake_backend
+    _fake_ffmpeg(monkeypatch, stabilization, options=(VIDSTAB_OPTIONS_FFMPEG_6_1, ""))
+    with pytest.raises(stabilization.StabilizationError, match="fileformat"):
+        stabilization.stabilize_video(source, target, settings)
+    assert source.read_bytes() == b"original bytes" and not target.exists()
+    assert not list(target.parent.glob("*.partial.mp4")) and not calls
 
 
 def test_failed_pass_is_sanitized_and_leaves_no_output(fake_backend, monkeypatch):
@@ -215,7 +307,9 @@ def test_copy_is_verified_then_published_with_bounded_cpu_and_local_protocols(fa
     stabilization, source, target, settings, calls = fake_backend
     stabilization.stabilize_video(source, target, settings)
     assert target.read_bytes() == b"complete stabilized video"
-    for args, kwargs in calls[1:]:
+    # The capability probe asks for the filter list and the vidstabdetect options; the rest are passes.
+    assert [args[-1] for args, _ in calls[:2]] == ["-filters", "filter=vidstabdetect"]
+    for args, kwargs in calls[2:]:
         assert args[args.index("-threads") + 1] == "4"
         assert args[args.index("-protocol_whitelist") + 1] == "file,pipe"
         assert kwargs["timeout"] <= 4 * 3600 and kwargs["threads"] == 4

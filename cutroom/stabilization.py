@@ -24,6 +24,7 @@ from .media import _stop_process, parse_rate
 MAX_SECONDS = 4 * 3600
 MAX_PASS_SECONDS = 4 * 3600
 COPY_AUDIO_CODECS = {"aac", "mp3"}
+_FILE_FORMAT_OPTION = re.compile(r"^\s+fileformat\s+<", re.MULTILINE)
 
 
 class StabilizationError(ValueError):
@@ -81,19 +82,31 @@ def _run(args, *, timeout, cancel_check=None, cwd=None, threads=2):
 
 
 def stabilization_capability(settings, *, cancel_check=None) -> dict:
-    """Check this installed FFmpeg; never install an optional library or model."""
+    """Check this installed FFmpeg; never install an optional library or model.
+
+    The first pass requests portable ASCII motion data, so the filter must also
+    accept its ``fileformat`` option. FFmpeg 6.1 lists both filters but rejects
+    that option, which would otherwise fail only after a copy was started.
+    """
+    def report(available: bool, message: str) -> dict:
+        return {"available": available, "engine": "vidstab", "message": message}
+
     try:
         result = _run([settings.ffmpeg, "-nostdin", "-hide_banner", "-filters"],
                       timeout=15, cancel_check=cancel_check)
+        filters = set(re.findall(r"^\s*[.TSC]{3}\s+(vidstabdetect|vidstabtransform)\s+", result.stdout, re.MULTILINE))
+        if filters != {"vidstabdetect", "vidstabtransform"}:
+            return report(False, "Stabilization needs FFmpeg with the vidstabdetect and vidstabtransform filters. "
+                                 "No software was installed.")
+        options = _run([settings.ffmpeg, "-nostdin", "-hide_banner", "-h", "filter=vidstabdetect"],
+                       timeout=15, cancel_check=cancel_check)
     except (OSError, subprocess.SubprocessError):
-        return {"available": False, "engine": "vidstab", "message": "CUTROOM could not inspect the installed FFmpeg."}
-    filters = set(re.findall(r"^\s*[.TSC]{3}\s+(vidstabdetect|vidstabtransform)\s+", result.stdout, re.MULTILINE))
-    available = filters == {"vidstabdetect", "vidstabtransform"}
-    return {
-        "available": available, "engine": "vidstab",
-        "message": "Local two-pass stabilization is available." if available else
-                   "Stabilization needs FFmpeg with the vidstabdetect and vidstabtransform filters. No software was installed.",
-    }
+        return report(False, "CUTROOM could not inspect the installed FFmpeg.")
+    # Builds differ in whether filter help is written to stdout or stderr.
+    if not _FILE_FORMAT_OPTION.search(f"{options.stdout}\n{options.stderr}"):
+        return report(False, "Stabilization needs a newer FFmpeg: this build's vidstabdetect filter lacks the "
+                             "fileformat option CUTROOM uses for motion data. No software was installed.")
+    return report(True, "Local two-pass stabilization is available.")
 
 
 def _integer(value, name, low, high):

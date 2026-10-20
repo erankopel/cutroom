@@ -4,7 +4,7 @@ In **Media**, open **Stabilize footage**, choose source A or B, and select **Cre
 
 Stabilization smooths camera movement and may zoom/crop the edges. It cannot repair every kind of shake, motion blur or rolling shutter. Review the copy before using it.
 
-The action checks the **FFmpeg executable configured for this CUTROOM installation** for `vidstabdetect` and `vidstabtransform`. It is unavailable when that build lacks either filter; no dependency or cloud service is installed automatically. The existing Windows FFmpeg 7.1.1 build was tested locally. Mac and Linux builds must pass the same runtime check; they have not been manually validated for this feature here.
+The action checks the **FFmpeg executable configured for this CUTROOM installation** for `vidstabdetect` and `vidstabtransform`, and that `vidstabdetect` accepts the `fileformat` option CUTROOM uses to write portable motion data. It is unavailable when that build lacks either filter or the option; no dependency or cloud service is installed automatically. FFmpeg 6.1, including the 6.1.1 package in Ubuntu 24.04, has both filters but not the option, so stabilization stays unavailable there until you point CUTROOM at a newer FFmpeg with libvidstab (set `CUTROOM_FFMPEG`). The existing Windows FFmpeg 7.1.1 build was tested locally. Mac and Linux builds must pass the same runtime check; they have not been manually validated for this feature here.
 
 Progress appears in the existing job controls. **Stop process** cancels processing and removes its unfinished output. A failed or cancelled copy can be retried in the media library. If the original source has changed, start a new copy of the current source instead. Ready copies remain available after reopening the project.
 

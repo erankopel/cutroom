@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased - Linux restart and stabilization availability fixes
+
+- Starting CUTROOM again within about a minute of stopping it no longer fails with a false "already in use" message on Linux. Startup now reserves its port with address reuse and listens immediately, as the Mac launcher already did. A port held by a running program still blocks startup, and Windows keeps its exclusive reservation.
+- Stabilization is now reported unavailable when the configured FFmpeg lists the vidstab filters but its `vidstabdetect` lacks the `fileformat` option, as in FFmpeg 6.1 (Ubuntu 24.04). Before, the interface offered the action and every copy failed after it started. The message now explains that a newer FFmpeg is needed.
+
 ## 1.2 Beta - 2026-10-19 - FFmpeg export compatibility hotfix
 
 - A fresh Windows installation could open successfully but fail every video export after setup installed FFmpeg 9.0.2. Its renderer still requested the removed `-filter_complex_script` and `-vsync` options.

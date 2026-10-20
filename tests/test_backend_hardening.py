@@ -1520,6 +1520,68 @@ def test_server_refuses_an_occupied_port_before_scheduling_browser(monkeypatch: 
     assert create_calls == []
 
 
+def _port_in_time_wait() -> int:
+    """Leave a loopback port with a closed connection that the server side closed first."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Waitress enables address reuse on the sockets it serves, and closed connections inherit it.
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    client = socket.create_connection(("127.0.0.1", port))
+    accepted, _address = listener.accept()
+    accepted.close()
+    client.recv(1)
+    client.close()
+    listener.close()
+    return port
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows reserves ports with SO_EXCLUSIVEADDRUSE instead")
+def test_server_restarts_while_the_previous_run_leaves_the_port_in_time_wait():
+    port = _port_in_time_wait()
+    plain = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        try:
+            plain.bind(("127.0.0.1", port))
+        except OSError:
+            pass
+        else:
+            pytest.skip("This operating system did not leave the port in TIME_WAIT")
+    finally:
+        plain.close()
+
+    reserved = server._reserve_server_sockets("127.0.0.1", port)
+    try:
+        assert [candidate.getsockname()[1] for candidate in reserved] == [port]
+        # The reservation already listens, so a second reuse-address bind cannot share it.
+        rival = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        rival.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            with pytest.raises(OSError):
+                rival.bind(("127.0.0.1", port))
+        finally:
+            rival.close()
+    finally:
+        for candidate in reserved:
+            candidate.close()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows reserves ports with SO_EXCLUSIVEADDRUSE instead")
+@pytest.mark.parametrize("listener_reuses_address", [False, True])
+def test_address_reuse_does_not_let_a_second_cutroom_share_a_live_port(listener_reuses_address: bool):
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if listener_reuses_address:
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    try:
+        with pytest.raises(server.ServerStartupError, match="already in use"):
+            server._reserve_server_sockets("127.0.0.1", listener.getsockname()[1])
+    finally:
+        listener.close()
+
+
 def test_server_reuses_the_same_running_cutroom_instance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     settings = SimpleNamespace(
         raw={"host": "127.0.0.1", "port": 8765, "open_browser": True},
